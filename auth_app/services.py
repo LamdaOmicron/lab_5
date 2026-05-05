@@ -3,12 +3,30 @@ from datetime import timedelta
 from django.utils import timezone
 from users.models import User, RefreshToken
 from auth_app.crypto import hash_password, verify_password, hash_token, verify_token
-from auth_app.jwt_utils import generate_access_token, generate_refresh_token, get_expiration_datetime
+from auth_app.jwt_utils import generate_access_token, generate_refresh_token, get_expiration_datetime, get_access_token_ttl_seconds
 from django.conf import settings
+from common.cache.cache_service import cache_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
     """Сервис для управления аутентификацией и авторизацией."""
+    
+    # Префиксы ключей кеша для токенов и сессий
+    CACHE_PREFIX_ACCESS_TOKEN = 'auth:user:{user_id}:access:{jti}'
+    CACHE_PREFIX_USER_PROFILE = 'users:profile:{user_id}'
+
+    @staticmethod
+    def _get_access_token_cache_key(user_id: str, jti: str) -> str:
+        """Генерация ключа кеша для Access токена."""
+        return AuthService.CACHE_PREFIX_ACCESS_TOKEN.format(user_id=user_id, jti=jti)
+    
+    @staticmethod
+    def _get_user_profile_cache_key(user_id: str) -> str:
+        """Генерация ключа кеша для профиля пользователя."""
+        return AuthService.CACHE_PREFIX_USER_PROFILE.format(user_id=user_id)
 
     @staticmethod
     def register_user(email: str, password: str, first_name: str = '', last_name: str = '') -> User:
@@ -126,7 +144,7 @@ class AuthService:
         return user
 
     @staticmethod
-    def generate_tokens(user: User) -> Tuple[str, str]:
+    def generate_tokens(user: User) -> Tuple[str, str, str]:
         """
         Генерация пары Access и Refresh токенов.
         
@@ -134,12 +152,141 @@ class AuthService:
             user: Объект пользователя.
             
         Returns:
-            Кортеж (access_token, refresh_token).
+            Кортеж (access_token, jti, refresh_token).
         """
-        access_token = generate_access_token(str(user.id), user.email)
+        access_token, jti = generate_access_token(str(user.id), user.email)
         refresh_token = generate_refresh_token(str(user.id), user.email)
         
-        return access_token, refresh_token
+        return access_token, jti, refresh_token
+
+    @staticmethod
+    def save_access_token_to_cache(user_id: str, jti: str) -> bool:
+        """
+        Сохранение JTI Access токена в Redis для возможности отзыва.
+        
+        Args:
+            user_id: ID пользователя.
+            jti: Уникальный идентификатор токена.
+            
+        Returns:
+            True если успешно, False иначе.
+        """
+        cache_key = AuthService._get_access_token_cache_key(user_id, jti)
+        ttl = get_access_token_ttl_seconds()
+        
+        # Храним значение "valid" чтобы подтвердить что токен активен
+        result = cache_service.set(cache_key, {'status': 'valid', 'user_id': user_id}, ttl=ttl)
+        
+        if result:
+            logger.debug(f"Saved access token JTI to cache: {cache_key} (TTL: {ttl}s)")
+        
+        return result
+
+    @staticmethod
+    def verify_access_token_in_cache(user_id: str, jti: str) -> bool:
+        """
+        Проверка наличия JTI Access токена в Redis.
+        
+        Args:
+            user_id: ID пользователя.
+            jti: Уникальный идентификатор токена.
+            
+        Returns:
+            True если токен действителен, False если отозван или не найден.
+        """
+        cache_key = AuthService._get_access_token_cache_key(user_id, jti)
+        cached_data = cache_service.get(cache_key)
+        
+        if cached_data is None:
+            # Токен не найден в кеше - значит он истек или был отозван
+            logger.debug(f"Access token JTI not found in cache: {cache_key}")
+            return False
+        
+        # Проверяем что токен принадлежит этому пользователю
+        if cached_data.get('user_id') != str(user_id):
+            logger.warning(f"User ID mismatch for token JTI: {cache_key}")
+            return False
+        
+        return True
+
+    @staticmethod
+    def revoke_access_token_from_cache(user_id: str, jti: str) -> bool:
+        """
+        Отзыв Access токена путем удаления JTI из Redis.
+        
+        Args:
+            user_id: ID пользователя.
+            jti: Уникальный идентификатор токена.
+            
+        Returns:
+            True если успешно, False иначе.
+        """
+        cache_key = AuthService._get_access_token_cache_key(user_id, jti)
+        result = cache_service.delete(cache_key)
+        
+        if result:
+            logger.debug(f"Revoked access token JTI from cache: {cache_key}")
+        
+        return result
+
+    @staticmethod
+    def cache_user_profile(user: User, ttl: Optional[int] = None) -> bool:
+        """
+        Кэширование профиля пользователя.
+        
+        Args:
+            user: Объект пользователя.
+            ttl: Время жизни кеша в секундах.
+            
+        Returns:
+            True если успешно, False иначе.
+        """
+        cache_key = AuthService._get_user_profile_cache_key(str(user.id))
+        
+        profile_data = {
+            'id': str(user.id),
+            'email': user.email,
+            'phone': user.phone if hasattr(user, 'phone') else None,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'avatar_url': user.avatar_url if hasattr(user, 'avatar_url') else '',
+            'created_at': user.created_at.isoformat() if user.created_at else None,
+        }
+        
+        result = cache_service.set(cache_key, profile_data, ttl=ttl)
+        
+        if result:
+            logger.debug(f"Cached user profile: {cache_key}")
+        
+        return result
+
+    @staticmethod
+    def get_cached_user_profile(user_id: str) -> Optional[dict]:
+        """
+        Получение кэшированного профиля пользователя.
+        
+        Args:
+            user_id: ID пользователя.
+            
+        Returns:
+            Данные профиля или None если не найдено.
+        """
+        cache_key = AuthService._get_user_profile_cache_key(user_id)
+        return cache_service.get(cache_key)
+
+    @staticmethod
+    def invalidate_user_profile_cache(user_id: str) -> bool:
+        """
+        Инвалидация кэша профиля пользователя.
+        
+        Args:
+            user_id: ID пользователя.
+            
+        Returns:
+            True если успешно, False иначе.
+        """
+        cache_key = AuthService._get_user_profile_cache_key(user_id)
+        return cache_service.delete(cache_key)
 
     @staticmethod
     def save_refresh_token(user: User, token: str, ip_address: str = None, 

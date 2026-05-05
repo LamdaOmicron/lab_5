@@ -1,10 +1,11 @@
 import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import uuid
 from django.conf import settings
 
 
-def generate_access_token(user_id: str, email: Optional[str] = None) -> str:
+def generate_access_token(user_id: str, email: Optional[str] = None) -> tuple[str, str]:
     """
     Генерация Access токена с коротким временем жизни (15 минут).
     
@@ -13,8 +14,11 @@ def generate_access_token(user_id: str, email: Optional[str] = None) -> str:
         email: Email пользователя (опционально).
         
     Returns:
-        JWT токен в виде строки.
+        Кортеж (jwt_token, jti) где jti - уникальный идентификатор токена.
     """
+    # Генерируем уникальный JTI (JWT ID)
+    jti = str(uuid.uuid4())
+    
     expiration_time = datetime.now(timezone.utc) + timedelta(
         minutes=int(settings.JWT_ACCESS_EXPIRATION.replace('m', ''))
         if hasattr(settings, 'JWT_ACCESS_EXPIRATION') and 'm' in settings.JWT_ACCESS_EXPIRATION
@@ -25,12 +29,15 @@ def generate_access_token(user_id: str, email: Optional[str] = None) -> str:
         'user_id': user_id,
         'email': email,
         'type': 'access',
+        'jti': jti,
         'exp': expiration_time,
         'iat': datetime.now(timezone.utc),
     }
     
     secret = getattr(settings, 'JWT_ACCESS_SECRET', 'default_access_secret')
-    return jwt.encode(payload, secret, algorithm='HS256')
+    token = jwt.encode(payload, secret, algorithm='HS256')
+    
+    return token, jti
 
 
 def generate_refresh_token(user_id: str, email: Optional[str] = None) -> str:
@@ -133,3 +140,21 @@ def get_expiration_datetime(expiration_str: str) -> datetime:
     else:
         # По умолчанию 15 минут
         return now + timedelta(minutes=15)
+
+
+def get_access_token_ttl_seconds() -> int:
+    """
+    Получение времени жизни Access токена в секундах.
+    
+    Returns:
+        Время жизни в секундах.
+    """
+    expiration_str = getattr(settings, 'JWT_ACCESS_EXPIRATION', '15m')
+    if 'm' in expiration_str:
+        minutes = int(expiration_str.replace('m', ''))
+        return minutes * 60
+    elif 'h' in expiration_str:
+        hours = int(expiration_str.replace('h', ''))
+        return hours * 3600
+    else:
+        return 900  # 15 минут по умолчанию
