@@ -197,3 +197,11 @@ ENVIRONMENT = os.getenv('NODE_ENV', os.getenv('APP_ENV', 'development'))
 
 # Disable automatic slash appending to avoid issues with POST requests
 APPEND_SLASH = False
+
+# Redis Cache Configuration
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
+CACHE_TTL_DEFAULT = int(os.getenv('CACHE_TTL_DEFAULT', '300'))
+CACHE_TTL_ACCESS_TOKEN = int(os.getenv('CACHE_TTL_ACCESS_TOKEN', '900'))
+CACHE_KEY_PREFIX = 'wp'

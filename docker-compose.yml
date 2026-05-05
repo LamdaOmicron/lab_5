@@ -21,6 +21,23 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: wp_labs_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - wp_labs_redis:/data
+    networks:
+      - wp_labs_network
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   app:
     build: .
     container_name: wp_labs_app
@@ -39,16 +56,22 @@ services:
       CLIENT_ID: ${CLIENT_ID}
       CLIENT_SECRET: ${CLIENT_SECRET}
       CALLBACK_URL: ${CALLBACK_URL}
-    ports:
-      - "${APP_PORT}:4200"
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CACHE_TTL_DEFAULT: ${CACHE_TTL_DEFAULT}
+      CACHE_TTL_ACCESS_TOKEN: ${CACHE_TTL_ACCESS_TOKEN}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - wp_labs_network
 
 volumes:
   wp_labs_postgres:
+  wp_labs_redis:
 
 networks:
   wp_labs_network:
