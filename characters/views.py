@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, AuthenticationFailed
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from .services import CharacterService
 from .serializers import CharacterSerializer, CharacterCreateUpdateSerializer
@@ -57,7 +57,7 @@ class CharacterListCreateView(APIView):
 
     @extend_schema(
         summary='Создание персонажа',
-        description='Создание нового игрового персонажа',
+        description='Создание нового игрового персонажа. Требуется авторизация.',
         request=CharacterCreateUpdateSerializer,
         responses={
             201: OpenApiResponse(
@@ -80,11 +80,16 @@ class CharacterListCreateView(APIView):
                     }
                 ]
             ),
-            400: OpenApiResponse(description='Ошибка валидации данных')
+            400: OpenApiResponse(description='Ошибка валидации данных'),
+            401: OpenApiResponse(description='Требуется авторизация')
         }
     )
     def post(self, request):
-        character = CharacterService.create(request.data)
+        # Проверяем авторизацию
+        if not hasattr(request, 'authenticated') or not request.authenticated:
+            raise AuthenticationFailed('Требуется авторизация')
+        
+        character = CharacterService.create(request.data, user=request.user)
         serializer = CharacterSerializer(character)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -134,40 +139,58 @@ class CharacterDetailView(APIView):
 
     @extend_schema(
         summary='Полное обновление персонажа',
-        description='Полное обновление данных персонажа (PUT)',
+        description='Полное обновление данных персонажа (PUT). Требуется авторизация и владение.',
         request=CharacterCreateUpdateSerializer,
         responses={
             200: OpenApiResponse(description='Персонаж обновлен'),
+            401: OpenApiResponse(description='Требуется авторизация'),
+            403: OpenApiResponse(description='Нет прав для редактирования'),
             404: OpenApiResponse(description='Персонаж не найден')
         }
     )
     def put(self, request, pk):
-        character = CharacterService.update(pk, request.data, partial=False)
+        # Проверяем авторизацию
+        if not hasattr(request, 'authenticated') or not request.authenticated:
+            raise AuthenticationFailed('Требуется авторизация')
+        
+        character = CharacterService.update(pk, request.data, partial=False, user=request.user)
         serializer = CharacterSerializer(character)
         return Response(serializer.data)
 
     @extend_schema(
         summary='Частичное обновление персонажа',
-        description='Частичное обновление данных персонажа (PATCH)',
+        description='Частичное обновление данных персонажа (PATCH). Требуется авторизация и владение.',
         request=CharacterCreateUpdateSerializer,
         responses={
             200: OpenApiResponse(description='Персонаж обновлен'),
+            401: OpenApiResponse(description='Требуется авторизация'),
+            403: OpenApiResponse(description='Нет прав для редактирования'),
             404: OpenApiResponse(description='Персонаж не найден')
         }
     )
     def patch(self, request, pk):
-        character = CharacterService.update(pk, request.data, partial=True)
+        # Проверяем авторизацию
+        if not hasattr(request, 'authenticated') or not request.authenticated:
+            raise AuthenticationFailed('Требуется авторизация')
+        
+        character = CharacterService.update(pk, request.data, partial=True, user=request.user)
         serializer = CharacterSerializer(character)
         return Response(serializer.data)
 
     @extend_schema(
         summary='Удаление персонажа',
-        description='Мягкое удаление персонажа (soft delete)',
+        description='Мягкое удаление персонажа (soft delete). Требуется авторизация и владение.',
         responses={
             204: OpenApiResponse(description='Персонаж успешно удален'),
+            401: OpenApiResponse(description='Требуется авторизация'),
+            403: OpenApiResponse(description='Нет прав для удаления'),
             404: OpenApiResponse(description='Персонаж не найден')
         }
     )
     def delete(self, request, pk):
-        CharacterService.delete(pk)
+        # Проверяем авторизацию
+        if not hasattr(request, 'authenticated') or not request.authenticated:
+            raise AuthenticationFailed('Требуется авторизация')
+        
+        CharacterService.delete(pk, user=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)

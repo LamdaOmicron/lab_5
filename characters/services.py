@@ -1,5 +1,6 @@
 from django.utils import timezone
 import logging
+from rest_framework.exceptions import PermissionDenied
 from .models import Character
 from .serializers import CharacterCreateUpdateSerializer
 from .exceptions import ConflictError
@@ -107,7 +108,7 @@ class CharacterService:
             return None
 
     @staticmethod
-    def create(data):
+    def create(data, user=None):
         # Сначала валидируем данные через сериализатор
         serializer = CharacterCreateUpdateSerializer(data=data)
         serializer.is_valid(raise_exception=True)
@@ -116,7 +117,7 @@ class CharacterService:
         if name and Character.active.filter(name=name).exists():
             raise ConflictError("Персонаж с таким именем уже существует")
         
-        character = serializer.save()
+        character = serializer.save(owner=user)
         
         # Инвалидация кеша списков
         CharacterService._invalidate_list_cache()
@@ -124,8 +125,13 @@ class CharacterService:
         return character
 
     @staticmethod
-    def update(character_id, data, partial=False):
+    def update(character_id, data, partial=False, user=None):
         character = Character.active.get(id=character_id)
+        
+        # Проверяем владение если передан пользователь
+        if user and character.owner and character.owner != user:
+            raise PermissionDenied("Нет прав для редактирования этого персонажа")
+        
         # Сначала валидируем данные через сериализатор
         serializer = CharacterCreateUpdateSerializer(character, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
@@ -144,8 +150,13 @@ class CharacterService:
         return character
 
     @staticmethod
-    def delete(character_id):
+    def delete(character_id, user=None):
         character = Character.active.get(id=character_id)
+        
+        # Проверяем владение если передан пользователь
+        if user and character.owner and character.owner != user:
+            raise PermissionDenied("Нет прав для удаления этого персонажа")
+        
         character.soft_delete()
         
         # Инвалидация кеша списков и конкретного элемента
