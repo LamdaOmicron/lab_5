@@ -2,6 +2,7 @@
 import uuid
 from django.db import models
 from django.utils import timezone
+from users.models import User
 
 class ActiveManager(models.Manager):
     def get_queryset(self):
@@ -9,6 +10,7 @@ class ActiveManager(models.Manager):
 
 class Character(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='characters', null=True, blank=True)
     name = models.CharField(max_length=100, db_index=True)
     type = models.CharField(max_length=50, default='character')  # тип персонажа (character, npc и т.д.)
     level = models.PositiveSmallIntegerField(default=1)

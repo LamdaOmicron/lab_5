@@ -15,6 +15,7 @@ RESTful API для управления игровыми персонажами 
 - Django REST Framework 3.14
 - drf-spectacular (OpenAPI/Swagger)
 - PostgreSQL 16
+- Redis 7 (кеширование и управление сессиями)
 - Docker & Docker Compose
 - JWT аутентификация
 - OAuth 2.0 (Yandex, VK)
@@ -78,6 +79,13 @@ JWT_REFRESH_EXPIRATION=7d
 CLIENT_ID=your_client_id
 CLIENT_SECRET=your_client_secret
 CALLBACK_URL=http://localhost:4200/auth/yandex/callback
+
+# Redis Configuration
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=redis_secure_password_change_in_prod
+CACHE_TTL_DEFAULT=300
+CACHE_TTL_ACCESS_TOKEN=900
 ```
 
 **Примечание:** файл `.env.example` должен быть в репозитории, а сам `.env` добавлен в `.gitignore`.
@@ -218,3 +226,38 @@ lab_2/
 - [drf-spectacular documentation](https://drf-spectacular.readthedocs.io/)
 - [OpenAPI Specification](https://swagger.io/specification/)
 - [Docker Compose](https://docs.docker.com/compose/)
+
+## Redis кеширование
+
+### Проверка кеша через CLI
+
+Подключитесь к контейнеру Redis:
+```bash
+docker exec -it wp_labs_redis redis-cli --pass ${REDIS_PASSWORD}
+```
+
+Полезные команды для проверки:
+1.  Просмотр ключей по паттерну:
+    ```bash
+    KEYS 'wp:*'
+    ```
+2.  Получение значения ключа:
+    ```bash
+    GET wp:items:list:page:1:limit:10
+    ```
+3.  Проверка времени жизни ключа (TTL):
+    ```bash
+    TTL wp:items:list:page:1:limit:10
+    ```
+4.  Удаление ключа (ручная инвалидация):
+    ```bash
+    DEL wp:items:list:page:1:limit:10
+    ```
+
+### Структура ключей кеша
+
+- `wp:items:list:page:{page}:limit:{limit}` - кеш списков персонажей
+- `wp:items:detail:{character_id}` - кеш конкретного персонажа
+- `wp:auth:user:{user_id}:access:{jti}` - JTI access токенов для отзыва
+- `wp:users:profile:{user_id}` - кеш профиля пользователя
+

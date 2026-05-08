@@ -55,6 +55,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'auth_app.middleware.JWTAuthenticationMiddleware',
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -73,7 +74,17 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SPLIT_REQUEST': True,
-    'SECURITY': [{'BearerAuth': []}],
+    'SECURITY': [{'CookieAuth': []}],
+    'COMPONENTS': {
+        'securitySchemes': {
+            'CookieAuth': {
+                'type': 'apiKey',
+                'in': 'cookie',
+                'name': 'access_token',
+                'description': 'JWT Access Token в HttpOnly cookie. Для авторизации выполните POST /auth/login/ и браузер автоматически отправит cookie.',
+            },
+        },
+    },
 }
 
 TEMPLATES = [
