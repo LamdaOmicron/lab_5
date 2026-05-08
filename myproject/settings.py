@@ -139,9 +139,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv('DB_NAME', 'wp_labs'),
-        'USER': os.getenv('DB_USER', 'student'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'student_secure_password'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'USER': os.getenv('DB_USER', 'wp_user'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'wp_secure_password_change_in_prod'),
+        'HOST': os.getenv('DB_HOST', 'postgres'),
         'PORT': os.getenv('DB_PORT', '5432'),
     }
 }
