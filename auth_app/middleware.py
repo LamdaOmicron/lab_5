@@ -7,6 +7,7 @@ class JWTAuthenticationMiddleware:
     """
     Middleware для аутентификации через JWT токен в cookies.
     Добавляет объект пользователя в request если токен валиден.
+    Также проверяет наличие JTI токена в Redis для возможности отзыва.
     """
     
     def __init__(self, get_response):
@@ -21,6 +22,18 @@ class JWTAuthenticationMiddleware:
             
             if payload:
                 user_id = payload.get('user_id')
+                jti = payload.get('jti')
+                
+                # Проверяем наличие JTI в Redis (не отозван ли токен)
+                if jti and user_id:
+                    is_token_valid = AuthService.verify_access_token_in_cache(user_id=user_id, jti=jti)
+                    if not is_token_valid:
+                        # Токен отозван или не найден в Redis
+                        request.user = None
+                        request.authenticated = False
+                        response = self.get_response(request)
+                        return response
+                
                 user = AuthService.get_user_by_id(user_id)
                 
                 if user:

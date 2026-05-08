@@ -1,1 +1,26 @@
-Nothing needs to be added to the .gitignore file based on the provided file changes. The changes consist only of Python source files (.py), a Docker Compose configuration file (.yml), and a settings file (.py), which are all legitimate project files that should be tracked in version control. No compiled artifacts, dependency directories, temporary files, or other items requiring exclusion are present in the changes.
+```
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+
+# Dependencies
+.venv/
+venv/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Original rules preserved
+*.log
+```

@@ -37,6 +37,7 @@ class AuthMiddlewareMixin:
     def get_user_from_request(self, request):
         """
         Извлечение и проверка Access токена из cookies.
+        Также проверяет наличие JTI токена в Redis для возможности отзыва.
         
         Returns:
             Объект User если токен валиден, None иначе.
@@ -52,6 +53,15 @@ class AuthMiddlewareMixin:
             return None
         
         user_id = payload.get('user_id')
+        jti = payload.get('jti')
+        
+        # Проверяем наличие JTI в Redis (не отозван ли токен)
+        if jti and user_id:
+            is_token_valid = AuthService.verify_access_token_in_cache(user_id=user_id, jti=jti)
+            if not is_token_valid:
+                # Токен отозван или не найден в Redis
+                return None
+        
         return AuthService.get_user_by_id(user_id)
 
 
@@ -154,7 +164,10 @@ class LoginView(APIView):
             raise AuthenticationFailed('Неверный email или пароль')
         
         # Генерируем токены
-        access_token, refresh_token = AuthService.generate_tokens(user)
+        access_token, jti, refresh_token = AuthService.generate_tokens(user)
+        
+        # Сохраняем JTI access токена в Redis для возможности отзыва
+        AuthService.save_access_token_to_cache(user_id=str(user.id), jti=jti)
         
         # Сохраняем refresh token в БД
         AuthService.save_refresh_token(
@@ -163,6 +176,9 @@ class LoginView(APIView):
             ip_address=get_client_ip(request),
             user_agent=request.META.get('HTTP_USER_AGENT', '')
         )
+        
+        # Кэшируем профиль пользователя
+        AuthService.cache_user_profile(user)
         
         # Формируем ответ с cookies
         response = Response({
@@ -229,7 +245,10 @@ class RefreshTokenView(APIView):
         user = token_obj.user
         
         # Генерируем новую пару токенов
-        new_access_token, new_refresh_token = AuthService.generate_tokens(user)
+        new_access_token, jti, new_refresh_token = AuthService.generate_tokens(user)
+        
+        # Сохраняем JTI нового access токена в Redis
+        AuthService.save_access_token_to_cache(user_id=str(user.id), jti=jti)
         
         # Отзываем старый токен
         AuthService.revoke_token(token_obj)
@@ -308,6 +327,17 @@ class WhoamiView(APIView):
         if not user:
             raise AuthenticationFailed('Пользователь не аутентифицирован')
         
+        # Проверяем кэш профиля пользователя
+        cached_profile = AuthService.get_cached_user_profile(str(user.id))
+        if cached_profile:
+            return Response({
+                'user': cached_profile,
+                'authenticated': True
+            })
+        
+        # Если кэша нет, возвращаем данные из БД и кэшируем
+        AuthService.cache_user_profile(user)
+        
         return Response({
             'user': UserResponseSerializer(user).data,
             'authenticated': True
@@ -339,6 +369,18 @@ class LogoutView(AuthMiddlewareMixin, APIView):
         if not user:
             raise AuthenticationFailed('Пользователь не аутентифицирован')
         
+        # Получаем access токен для извлечения JTI
+        access_token = request.COOKIES.get('access_token')
+        if access_token:
+            from auth_app.jwt_utils import verify_access_token
+            payload = verify_access_token(access_token)
+            if payload:
+                jti = payload.get('jti')
+                user_id = payload.get('user_id')
+                # Отзываем access токен из Redis
+                if jti and user_id:
+                    AuthService.revoke_access_token_from_cache(user_id=user_id, jti=jti)
+        
         # Находим и отзываем текущий refresh token
         refresh_token = request.COOKIES.get('refresh_token')
         
@@ -346,6 +388,9 @@ class LogoutView(AuthMiddlewareMixin, APIView):
             token_obj = AuthService.verify_refresh_token_in_db(refresh_token)
             if token_obj:
                 AuthService.revoke_token(token_obj)
+        
+        # Инвалидируем кэш профиля пользователя
+        AuthService.invalidate_user_profile_cache(str(user.id))
         
         # Очищаем cookies
         response = Response({'message': 'Успешный выход'})
@@ -568,7 +613,10 @@ class OAuthCallbackView(View):
         )
         
         # Генерируем локальные токены
-        access_token, refresh_token = AuthService.generate_tokens(user)
+        access_token, jti, refresh_token = AuthService.generate_tokens(user)
+        
+        # Сохраняем JTI access токена в Redis
+        AuthService.save_access_token_to_cache(user_id=str(user.id), jti=jti)
         
         # Сохраняем refresh token в БД
         AuthService.save_refresh_token(
@@ -577,6 +625,9 @@ class OAuthCallbackView(View):
             ip_address=get_client_ip(request),
             user_agent=request.META.get('HTTP_USER_AGENT', '')
         )
+        
+        # Кэшируем профиль пользователя
+        AuthService.cache_user_profile(user)
         
         # Создаем ответ с редиректом и устанавливаем cookies
         from django.http import HttpResponseRedirect
